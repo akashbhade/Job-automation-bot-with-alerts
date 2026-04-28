@@ -146,6 +146,7 @@ async function main(type: 'instant' | 'daily') {
     const scrapedJobs = await scrapeJobs();
     const newJobs = filterNewJobs(oldJobs, scrapedJobs);
 
+    console.log(`📊 Total scraped: ${scrapedJobs.length}`);
     console.log(`🆕 New jobs: ${newJobs.length}`);
 
     if (type === 'instant') {
