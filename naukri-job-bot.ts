@@ -1,8 +1,6 @@
 import { chromium } from 'playwright';
 import * as nodemailer from 'nodemailer';
 import * as fs from 'fs';
-import cron from 'node-cron';
-import 'dotenv/config';
 
 const BASE_URL =
   'https://www.naukri.com/qa-automation-jobs-in-pune-mumbai-navi-mumbai?jobAge=1';
@@ -37,10 +35,10 @@ function filterNewJobs(oldJobs: Job[], newJobs: Job[]): Job[] {
   return newJobs.filter(job => !oldLinks.has(job.link));
 }
 
-// 🔍 Scraper
+// 🔍 Scrape jobs
 async function scrapeJobs(): Promise<Job[]> {
   const browser = await chromium.launch({
-    headless: true
+    headless: true // ✅ REQUIRED for GitHub
   });
 
   const context = await browser.newContext({
@@ -58,18 +56,17 @@ async function scrapeJobs(): Promise<Job[]> {
         ? BASE_URL
         : BASE_URL.replace('?jobAge=1', `-${pageNum}?jobAge=1`);
 
-    console.log(`🔎 Page ${pageNum}: ${pageUrl}`);
+    console.log(`\n🔎 Opening Page ${pageNum}: ${pageUrl}`);
 
     await page.goto(pageUrl, { waitUntil: 'domcontentloaded' });
-    await page.waitForSelector('a[href*="/job-listings"]', {
-      timeout: 15000
-    });
-    await page.waitForTimeout(3000);
-    for (let i = 0; i < 15; i++) {
-      await page.mouse.wheel(0, 5000);
+
+    await page.waitForTimeout(6000);
+
+    for (let i = 0; i < 10; i++) {
+      await page.mouse.wheel(0, 4000);
       await page.waitForTimeout(1500);
     }
-    await page.screenshot({ path: `page-${pageNum}.png`, fullPage: true });
+
     const jobs: Job[] = await page.evaluate(() => {
       const jobLinks = document.querySelectorAll('a[href*="/job-listings"]');
 
@@ -87,7 +84,7 @@ async function scrapeJobs(): Promise<Job[]> {
       });
     });
 
-    console.log(`✅ Page ${pageNum}: ${jobs.length} jobs`);
+    console.log(`✅ Page ${pageNum} jobs found: ${jobs.length}`);
 
     allJobs.push(...jobs);
   }
@@ -98,13 +95,15 @@ async function scrapeJobs(): Promise<Job[]> {
     new Map(allJobs.map(job => [job.link, job])).values()
   );
 
+  console.log(`\n📊 Total unique jobs: ${uniqueJobs.length}`);
+
   return uniqueJobs.slice(0, MAX_JOBS);
 }
 
-// 📧 Email sender
-async function sendEmail(jobs: Job[], type: 'instant' | 'daily') {
+// 📧 Send email
+async function sendEmail(jobs: Job[], type: 'instant' | 'daily'): Promise<void> {
   if (jobs.length === 0) {
-    console.log("No jobs to send.");
+    console.log("No new jobs found.");
     return;
   }
 
@@ -112,8 +111,9 @@ async function sendEmail(jobs: Job[], type: 'instant' | 'daily') {
     .map(
       (job, i) => `
 ${i + 1}. ${job.title}
-${job.company} | ${job.location}
-${job.link}
+Company: ${job.company}
+Location: ${job.location}
+Link: ${job.link}
 `
     )
     .join('\n');
@@ -138,18 +138,20 @@ ${job.link}
     text: jobList
   });
 
-  console.log("📧 Email sent:", type);
+  console.log("📧 Email sent!");
 }
 
-// 🔁 Main logic
-async function main(type: 'instant' | 'daily') {
+// 🚀 Main
+(async () => {
   try {
+    const type =
+      process.env.RUN_TYPE === 'daily' ? 'daily' : 'instant';
+
     const oldJobs = loadOldJobs();
     const scrapedJobs = await scrapeJobs();
     const newJobs = filterNewJobs(oldJobs, scrapedJobs);
 
-    console.log(`📊 Total scraped: ${scrapedJobs.length}`);
-    console.log(`🆕 New jobs: ${newJobs.length}`);
+    console.log(`\n🆕 New jobs: ${newJobs.length}`);
 
     if (type === 'instant') {
       await sendEmail(newJobs, 'instant');
@@ -161,10 +163,4 @@ async function main(type: 'instant' | 'daily') {
   } catch (err) {
     console.error("❌ Error:", err);
   }
-}
-const type = process.env.RUN_TYPE === 'daily' ? 'daily' : 'instant';
-
-(async () => {
-  console.log(`🚀 Running job bot in ${type} mode...`);
-  await main(type as 'instant' | 'daily');
 })();
