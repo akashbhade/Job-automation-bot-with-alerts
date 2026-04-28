@@ -38,7 +38,7 @@ function filterNewJobs(oldJobs: Job[], newJobs: Job[]): Job[] {
 // 🔍 Scrape jobs
 async function scrapeJobs(): Promise<Job[]> {
   const browser = await chromium.launch({
-    headless: true // ✅ REQUIRED for GitHub
+    headless: true
   });
 
   const context = await browser.newContext({
@@ -56,35 +56,39 @@ async function scrapeJobs(): Promise<Job[]> {
         ? BASE_URL
         : BASE_URL.replace('?jobAge=1', `-${pageNum}?jobAge=1`);
 
-    console.log(`\n🔎 Opening Page ${pageNum}: ${pageUrl}`);
+    console.log(`🔎 Page ${pageNum}: ${pageUrl}`);
 
     await page.goto(pageUrl, { waitUntil: 'domcontentloaded' });
 
-    await page.waitForTimeout(6000);
+    // ✅ Stable wait
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(4000);
 
+    // ✅ Scroll for lazy loading
     for (let i = 0; i < 10; i++) {
       await page.mouse.wheel(0, 4000);
-      await page.waitForTimeout(1500);
+      await page.waitForTimeout(1000);
     }
 
+    // ✅ CORRECT SELECTOR
     const jobs: Job[] = await page.evaluate(() => {
-      const jobLinks = document.querySelectorAll('a[href*="/job-listings"]');
+      const cards = document.querySelectorAll('article.jobTuple');
 
-      return Array.from(jobLinks).map((link) => {
-        const parent = link.closest('div');
+      return Array.from(cards).map((card) => {
+        const titleEl = card.querySelector('a.title');
+        const companyEl = card.querySelector('.comp-name');
+        const locationEl = card.querySelector('.locWdth');
 
         return {
-          title: (link as HTMLElement).innerText?.trim() || '',
-          company:
-            (parent?.querySelector('[class*="comp"]') as HTMLElement)?.innerText?.trim() || '',
-          location:
-            (parent?.querySelector('[class*="loc"]') as HTMLElement)?.innerText?.trim() || '',
-          link: (link as HTMLAnchorElement).href
+          title: titleEl?.textContent?.trim() || '',
+          company: companyEl?.textContent?.trim() || '',
+          location: locationEl?.textContent?.trim() || '',
+          link: (titleEl as HTMLAnchorElement)?.href || ''
         };
       });
     });
 
-    console.log(`✅ Page ${pageNum} jobs found: ${jobs.length}`);
+    console.log(`✅ Page ${pageNum}: ${jobs.length} jobs`);
 
     allJobs.push(...jobs);
   }
@@ -95,15 +99,15 @@ async function scrapeJobs(): Promise<Job[]> {
     new Map(allJobs.map(job => [job.link, job])).values()
   );
 
-  console.log(`\n📊 Total unique jobs: ${uniqueJobs.length}`);
+  console.log(`📊 Total unique jobs: ${uniqueJobs.length}`);
 
   return uniqueJobs.slice(0, MAX_JOBS);
 }
 
 // 📧 Send email
-async function sendEmail(jobs: Job[], type: 'instant' | 'daily'): Promise<void> {
+async function sendEmail(jobs: Job[], type: 'instant' | 'daily') {
   if (jobs.length === 0) {
-    console.log("No new jobs found.");
+    console.log("No jobs to send.");
     return;
   }
 
@@ -111,9 +115,8 @@ async function sendEmail(jobs: Job[], type: 'instant' | 'daily'): Promise<void> 
     .map(
       (job, i) => `
 ${i + 1}. ${job.title}
-Company: ${job.company}
-Location: ${job.location}
-Link: ${job.link}
+${job.company} | ${job.location}
+${job.link}
 `
     )
     .join('\n');
@@ -151,7 +154,7 @@ Link: ${job.link}
     const scrapedJobs = await scrapeJobs();
     const newJobs = filterNewJobs(oldJobs, scrapedJobs);
 
-    console.log(`\n🆕 New jobs: ${newJobs.length}`);
+    console.log(`🆕 New jobs: ${newJobs.length}`);
 
     if (type === 'instant') {
       await sendEmail(newJobs, 'instant');
