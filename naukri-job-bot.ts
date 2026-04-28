@@ -159,18 +159,9 @@ async function main(type: 'instant' | 'daily') {
     console.error("❌ Error:", err);
   }
 }
+const type = process.env.RUN_TYPE === 'daily' ? 'daily' : 'instant';
 
-
-// ⏰ Run every 30 minutes (instant alerts)
-cron.schedule('*/30 * * * *', async () => {
-  console.log("⏱ Checking for new jobs...");
-  await main('instant');
-});
-
-// 🌅 Daily summary at 8 AM
-cron.schedule('0 8 * * *', async () => {
-  console.log("🌅 Sending daily summary...");
-  await main('daily');
-});
-
-console.log("🚀 Job bot started...");
+(async () => {
+  console.log(`🚀 Running job bot in ${type} mode...`);
+  await main(type as 'instant' | 'daily');
+})();
