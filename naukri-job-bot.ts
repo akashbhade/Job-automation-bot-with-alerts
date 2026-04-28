@@ -61,13 +61,15 @@ async function scrapeJobs(): Promise<Job[]> {
     console.log(`🔎 Page ${pageNum}: ${pageUrl}`);
 
     await page.goto(pageUrl, { waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(4000);
-
-    for (let i = 0; i < 10; i++) {
-      await page.mouse.wheel(0, 4000);
-      await page.waitForTimeout(1000);
+    await page.waitForSelector('a[href*="/job-listings"]', {
+      timeout: 15000
+    });
+    await page.waitForTimeout(3000);
+    for (let i = 0; i < 15; i++) {
+      await page.mouse.wheel(0, 5000);
+      await page.waitForTimeout(1500);
     }
-
+    await page.screenshot({ path: `page-${pageNum}.png`, fullPage: true });
     const jobs: Job[] = await page.evaluate(() => {
       const jobLinks = document.querySelectorAll('a[href*="/job-listings"]');
 
