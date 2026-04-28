@@ -19,7 +19,6 @@ jobs:
           node-version: 18
           cache: 'npm'
 
-      # ✅ Cache Playwright browsers
       - name: Cache Playwright
         uses: actions/cache@v4
         with:
@@ -29,11 +28,11 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Install Playwright (only if needed)
+      - name: Install Playwright
         run: npx playwright install --with-deps
 
       - name: Run bot
-        run: npx ts-node naukri-job-bot.ts
+        run: xvfb-run --auto-servernum npx ts-node naukri-job-bot.ts
         env:
           EMAIL: ${{ secrets.EMAIL }}
           PASS: ${{ secrets.PASS }}
