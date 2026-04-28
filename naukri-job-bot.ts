@@ -38,7 +38,7 @@ function filterNewJobs(oldJobs: Job[], newJobs: Job[]): Job[] {
 // 🔍 Scrape jobs
 async function scrapeJobs(): Promise<Job[]> {
   const browser = await chromium.launch({
-    headless: true
+    headless: false // Set to true for headless mode
   });
 
   const context = await browser.newContext({
