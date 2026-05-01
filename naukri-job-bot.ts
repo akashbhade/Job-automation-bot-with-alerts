@@ -1,22 +1,31 @@
+import * as dotenv from 'dotenv';
+dotenv.config();
 import { chromium } from 'playwright';
 import * as nodemailer from 'nodemailer';
 import * as fs from 'fs';
 
-const BASE_URL =
-  'https://www.naukri.com/qa-automation-jobs-in-pune-mumbai-navi-mumbai?jobAge=1';
-
-const MAX_JOBS = 100;
+// ===== CONFIG =====
+const MIN_EXP = 0;
+const MAX_EXP = 5;
+const MAX_JOBS = 50;
 const MAX_PAGES = 3;
 const DATA_FILE = 'jobs.json';
+
+// 🔐 SET YOUR EMAIL HERE
+const EMAIL_USER = 'your_email@gmail.com';
+const EMAIL_PASS = 'your_app_password'; // ⚠️ use Gmail App Password
+
+const BASE_URL = `https://www.naukri.com/qa-automation-testing-jobs-in-noida-mumbai-navi-mumbai?jobAge=1&experience=${MIN_EXP}-${MAX_EXP}`;
 
 type Job = {
   title: string;
   company: string;
   location: string;
+  experience: string;
   link: string;
 };
 
-// 📌 Load previous jobs
+// ===== FILE HANDLING =====
 function loadOldJobs(): Job[] {
   if (fs.existsSync(DATA_FILE)) {
     return JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8'));
@@ -24,102 +33,93 @@ function loadOldJobs(): Job[] {
   return [];
 }
 
-// 📌 Save jobs
 function saveJobs(jobs: Job[]): void {
   fs.writeFileSync(DATA_FILE, JSON.stringify(jobs, null, 2));
 }
 
-// 📌 Remove duplicates
 function filterNewJobs(oldJobs: Job[], newJobs: Job[]): Job[] {
-  const oldLinks = new Set(oldJobs.map(job => job.link));
-  return newJobs.filter(job => !oldLinks.has(job.link));
+  const oldLinks = new Set(oldJobs.map(j => j.link));
+  return newJobs.filter(j => !oldLinks.has(j.link));
 }
 
-// 🔍 Scrape jobs
+// ===== SCRAPER =====
 async function scrapeJobs(): Promise<Job[]> {
-  const browser = await chromium.launch({
-    headless: false // Set to true for headless mode
-  });
-
-  const context = await browser.newContext({
-    userAgent:
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36'
-  });
-
-  const page = await context.newPage();
+  const browser = await chromium.launch({ headless: false });
+  const page = await browser.newPage();
 
   let allJobs: Job[] = [];
 
-  for (let pageNum = 1; pageNum <= MAX_PAGES; pageNum++) {
-    const pageUrl =
-      pageNum === 1
-        ? BASE_URL
-        : BASE_URL.replace('?jobAge=1', `-${pageNum}?jobAge=1`);
+  for (let i = 1; i <= MAX_PAGES; i++) {
+    const url = i === 1 ? BASE_URL : BASE_URL.replace('?', `-${i}?`);
 
-    console.log(`🔎 Page ${pageNum}: ${pageUrl}`);
+    console.log("Opening Page: " + url);
 
-    await page.goto(pageUrl, { waitUntil: 'domcontentloaded' });
-
-    // ✅ Stable wait
-    await page.waitForLoadState('networkidle');
+    await page.goto(url, { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(4000);
 
-    // ✅ Scroll for lazy loading
-    for (let i = 0; i < 10; i++) {
-      await page.mouse.wheel(0, 4000);
-      await page.waitForTimeout(1000);
+    // scroll
+    for (let s = 0; s < 8; s++) {
+      await page.mouse.wheel(0, 3000);
+      await page.waitForTimeout(800);
     }
 
-    // ✅ CORRECT SELECTOR
     const jobs: Job[] = await page.evaluate(() => {
-      const cards = document.querySelectorAll('article.jobTuple');
+      const cards = document.querySelectorAll('.srp-jobtuple-wrapper, .jobTuple, article.jobTupleHeader');
 
-      return Array.from(cards).map((card) => {
-        const titleEl = card.querySelector('a.title');
-        const companyEl = card.querySelector('.comp-name');
-        const locationEl = card.querySelector('.locWdth');
-
+      return Array.from(cards).map(card => {
+        const titleEl = card.querySelector('a.title, a[href*="/job-listings"]');
         return {
-          title: titleEl?.textContent?.trim() || '',
-          company: companyEl?.textContent?.trim() || '',
-          location: locationEl?.textContent?.trim() || '',
+          title: (titleEl as HTMLElement)?.innerText.trim() || '',
+          company: (card.querySelector('.comp-name, .companyInfo a, [class*="companyInfo"]') as HTMLElement)?.innerText.trim() || '',
+          location: (card.querySelector('.locWdth, .location, [class*="location"]') as HTMLElement)?.innerText.trim() || '',
+          experience: (card.querySelector('.expwdth, .experience, [class*="experience"]') as HTMLElement)?.innerText.trim() || '',
           link: (titleEl as HTMLAnchorElement)?.href || ''
         };
       });
     });
 
-    console.log(`✅ Page ${pageNum}: ${jobs.length} jobs`);
-
+    console.log("Jobs found: " + jobs.length);
     allJobs.push(...jobs);
   }
 
   await browser.close();
 
-  const uniqueJobs = Array.from(
-    new Map(allJobs.map(job => [job.link, job])).values()
-  );
+  // remove duplicates
+  const unique = Array.from(new Map(allJobs.map(j => [j.link, j])).values());
 
-  console.log(`📊 Total unique jobs: ${uniqueJobs.length}`);
-
-  return uniqueJobs.slice(0, MAX_JOBS);
+  return unique.filter(j => j.title && j.link).slice(0, MAX_JOBS);
 }
 
-// 📧 Send email
-async function sendEmail(jobs: Job[], type: 'instant' | 'daily') {
+// ===== EMAIL =====
+async function sendEmail(jobs: Job[]) {
   if (jobs.length === 0) {
-    console.log("No jobs to send.");
+    console.log("No new jobs");
     return;
   }
 
-  const jobList = jobs
-    .map(
-      (job, i) => `
-${i + 1}. ${job.title}
-${job.company} | ${job.location}
-${job.link}
-`
-    )
-    .join('\n');
+  const jobCards = jobs.map(job => `
+    <div style="background:#fff;padding:16px;margin-bottom:12px;border-radius:10px;box-shadow:0 2px 6px rgba(0,0,0,0.1);">
+      <h3 style="margin:0;color:#0a66c2;">${job.title}</h3>
+      <p><b>${job.company}</b></p>
+      <p>📍 ${job.location}</p>
+      <p>💼 ${job.experience}</p>
+      <a href="${job.link}" target="_blank"
+        style="display:inline-block;margin-top:8px;padding:8px 12px;background:#0a66c2;color:#fff;border-radius:6px;text-decoration:none;">
+        View Job
+      </a>
+    </div>
+  `).join('');
+
+  const html = `
+    <div style="font-family:Arial;background:#f4f6f8;padding:20px;">
+      <div style="max-width:600px;margin:auto;">
+        <h2 style="text-align:center;color:#0a66c2;">QA Jobs (${MIN_EXP}-${MAX_EXP} yrs)</h2>
+        <p style="text-align:center;">${jobs.length} new jobs found</p>
+        ${jobCards}
+        <p style="text-align:center;font-size:12px;color:#777;">Job Bot</p>
+      </div>
+    </div>
+  `;
 
   const transporter = nodemailer.createTransport({
     service: 'gmail',
@@ -129,41 +129,30 @@ ${job.link}
     }
   });
 
-  const subject =
-    type === 'instant'
-      ? `🚨 New Jobs Found (${jobs.length})`
-      : `📊 Daily Job Summary (${jobs.length})`;
-
   await transporter.sendMail({
     from: process.env.EMAIL,
     to: process.env.TO_EMAIL,
-    subject,
-    text: jobList
+    subject: "QA Jobs Alert",
+    html: html
   });
 
-  console.log("📧 Email sent!");
+  console.log("Email sent");
 }
 
-// 🚀 Main
+// ===== MAIN =====
 (async () => {
   try {
-    const type =
-      process.env.RUN_TYPE === 'daily' ? 'daily' : 'instant';
-
     const oldJobs = loadOldJobs();
-    const scrapedJobs = await scrapeJobs();
-    const newJobs = filterNewJobs(oldJobs, scrapedJobs);
+    const scraped = await scrapeJobs();
+    const newJobs = filterNewJobs(oldJobs, scraped);
 
-    console.log(`🆕 New jobs: ${newJobs.length}`);
+    console.log("New jobs: " + newJobs.length);
 
-    if (type === 'instant') {
-      await sendEmail(newJobs, 'instant');
-    } else {
-      await sendEmail(scrapedJobs, 'daily');
-    }
+    await sendEmail(newJobs);
+    saveJobs(scraped);
 
-    saveJobs(scrapedJobs);
-  } catch (err) {
-    console.error("❌ Error:", err);
+  } catch (e) {
+    console.error(e);
   }
 })();
+
