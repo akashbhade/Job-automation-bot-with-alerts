@@ -15,7 +15,7 @@ const DATA_FILE = 'jobs.json';
 const EMAIL_USER = 'your_email@gmail.com';
 const EMAIL_PASS = 'your_app_password'; // ⚠️ use Gmail App Password
 
-const BASE_URL = `https://www.naukri.com/qa-automation-testing-jobs-in-noida-mumbai-navi-mumbai?jobAge=1&experience=${MIN_EXP}-${MAX_EXP}`;
+const BASE_URL = `https://www.naukri.com/qa-automation-testing-jobs-in-noida-pune-mumbai-navi-mumbai?jobAge=1&experience=${MIN_EXP}-${MAX_EXP}`;
 
 type Job = {
   title: string;
